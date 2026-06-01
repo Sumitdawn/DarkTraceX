@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import importlib.util
+import logging
 import pkgutil
 from pathlib import Path
 from types import ModuleType
 from .config import AppConfig
+
+logger = logging.getLogger(__name__)
 
 
 class PluginMetadata:
@@ -31,10 +34,23 @@ class PluginRegistry:
             spec = importlib.util.spec_from_file_location(module_name, plugin_folder / f"{name}.py")
             if spec and spec.loader:
                 module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(module)
+                try:
+                    spec.loader.exec_module(module)
+                except Exception as exc:
+                    logger.exception("Failed to load plugin '%s'", name)
+                    continue
                 metadata = getattr(module, "metadata", None)
-                if metadata is not None:
-                    results.append(PluginMetadata(metadata.get("name", name), metadata.get("version", "0.0.0"), metadata.get("description", ""), module))
+                if isinstance(metadata, dict):
+                    results.append(
+                        PluginMetadata(
+                            metadata.get("name", name),
+                            metadata.get("version", "0.0.0"),
+                            metadata.get("description", ""),
+                            module,
+                        )
+                    )
+                else:
+                    logger.warning("Plugin '%s' did not provide valid metadata, skipping.", name)
         self.active = results
         return results
 

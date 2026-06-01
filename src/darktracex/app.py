@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 import logging
 import textwrap
+from typing import Any
+
+import textual
 from rich.console import Group, RenderableType
 from rich.panel import Panel
 from rich.text import Text
 from textual.app import App, ComposeResult
-from textual.containers import Container, Horizontal, Vertical
+from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
 from textual.widgets import Button, Footer, Header, Input, Label, ListItem, ListView, Static
 
@@ -48,13 +50,15 @@ MODULE_MAP = {
 
 class Banner(Static):
     def render(self) -> Panel:
-        ascii_art = """
+        width = max(self.size.width or 80, 80)
+        if width >= 90:
+            ascii_art = """
 ██████╗  █████╗ ██████╗ ██╗  ██╗████████╗██████╗  █████╗  ██████╗███████╗
 ██╔══██╗██╔══██╗██╔══██╗██║ ██╔╝╚══██╔══╝██╔══██╗██╔══██╗██╔════╝██╔════╝
 ██║  ██║███████║██████╔╝█████╔╝    ██║   ██████╔╝███████║██║     █████╗
 ██║  ██║██╔══██║██╔══██╗██╔═██╗    ██║   ██╔══██╗██╔══██║██║     ██╔══╝
-██████╔╝██║  ██║██║  ██║██║  ██╗   ██║   ██║  ██║╚██████╗███████╗
-╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝ ╚═════╝╚══════╝
+██████╔╝██║  ██║██║  ██║██║  ██╗   ██║   ██║  ██║██║  ██║╚██████╗███████╗
+╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝
 
                        X
 
@@ -64,12 +68,27 @@ MADE IN INDIA 🇮🇳
 
 Author: Darkscripters
 """
-        banner_text = Text(ascii_art, style="bold red on black")
+        else:
+            ascii_art = """
+ ██████╗  █████╗ ██████╗ ██╗  ██╗████████╗██████╗  █████╗
+██╔══██╗██╔══██╗██╔══██╗██║ ██╔╝╚══██╔══╝██╔══██╗██╔══██╗
+██║  ██║███████║██████╔╝█████╔╝    ██║   ██████╔╝███████║
+██║  ██║██╔══██║██╔══██╗██╔═██╗    ██║   ██╔══██╗██╔══██║
+██████╔╝██║  ██║██║  ██║██║  ██╗   ██║   ██║  ██║██║  ██║
+╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝
+
+                     DARKTRACE X
+
+        Cyber Intelligence Investigation Engine
+        MADE IN INDIA 🇮🇳
+        Author: Darkscripters
+"""
+        banner_text = Text(ascii_art, style="bold red on black", justify="center")
         return Panel(
             banner_text,
             border_style="bright_cyan",
             style="on black",
-            expand=True,
+            padding=(1, 2),
         )
 
 
@@ -85,13 +104,17 @@ class StatusPanel(Static):
 
 
 class OutputPanel(Static):
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._entries: list[RenderableType] = []
 
     def write(self, data: str | RenderableType, scroll_end: bool | None = None) -> "OutputPanel":
         if isinstance(data, str):
-            self._entries.append(Text(data, style="white"))
+            try:
+                entry = Text.from_markup(data, style="white")
+            except Exception:
+                entry = Text(data, style="white")
+            self._entries.append(entry)
         else:
             self._entries.append(data)
         self.refresh()
@@ -129,11 +152,6 @@ class DarkTraceXApp(App):
         self.plugin_registry = PluginRegistry(config)
         self.current_workspace = str(config.workspace_dir)
         self.report_engine = ReportEngine(config.workspace_dir)
-        init_db()
-
-        self.session = SessionLocal()
-        self.investigation_engine = InvestigationEngine(self.session)
-        self.correlation_engine = CorrelationEngine()
 
         logging.basicConfig(
             level=logging.INFO,
@@ -141,6 +159,32 @@ class DarkTraceXApp(App):
             handlers=[logging.StreamHandler()],
         )
         self.logger = logging.getLogger("darktracex")
+        self._check_textual_version()
+
+        try:
+            init_db()
+            self.logger.info("Database initialized successfully")
+        except Exception:
+            self.logger.exception("Database initialization failed")
+
+        self.session = SessionLocal()
+        self.investigation_engine = InvestigationEngine(self.session)
+        self.correlation_engine = CorrelationEngine()
+        self.logger.info("DarkTrace X initialized. Workspace: %s", self.current_workspace)
+
+    def _check_textual_version(self) -> None:
+        version = getattr(textual, "__version__", "0.0.0")
+        try:
+            major, minor, *_ = [int(part) for part in version.split(".") if part.isdigit()]
+        except Exception:
+            major, minor = 0, 0
+        if major == 0 and minor < 27:
+            self.logger.warning(
+                "Installed Textual version %s may not be compatible with DarkTrace X. Please upgrade to textual >= 0.27.0.",
+                version,
+            )
+        else:
+            self.logger.info("Detected Textual version %s", version)
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -159,14 +203,19 @@ class DarkTraceXApp(App):
                 yield Button("Run Investigation", id="run-button", variant="primary")
             with Vertical(id="right-pane"):
                 yield StatusPanel(id="status-panel")
-                yield OutputPanel(highlight=True, id="output-panel")
+                yield OutputPanel(id="output-panel")
         yield Footer()
 
     async def on_mount(self) -> None:
         self.status = self.query_one(StatusPanel)
         self.output = self.query_one(OutputPanel)
         self.update_header()
-        self.plugin_registry.load()
+        try:
+            loaded_plugins = self.plugin_registry.load()
+            self.logger.info("Loaded %d plugins", len(loaded_plugins))
+        except Exception as exc:
+            self.logger.exception("Plugin loading failed")
+            self.output.write(f"Plugin loading failed: {exc}")
         self.update_status()
 
     def update_header(self) -> None:
