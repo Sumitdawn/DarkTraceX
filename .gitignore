@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+env/
+venv/
+.build/
+.mypy_cache/
+.pytest_cache/
+.alembic/
+.darktracex/
+.DS_Store
+reports/

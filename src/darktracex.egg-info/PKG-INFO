@@ -1,0 +1,67 @@
+Metadata-Version: 2.4
+Name: darktracex
+Version: 1.0.0
+Summary: DarkTrace X: CLI-first Cyber Intelligence and Investigation Operating System.
+Author-email: DarkTrace X Architects <team@darktracex.local>
+License: MIT
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Classifier: Topic :: Security :: Intelligence
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+Requires-Dist: typer>=0.9.0
+Requires-Dist: rich>=14.0.0
+Requires-Dist: textual>=0.27.0
+Requires-Dist: sqlalchemy>=2.0.0
+Requires-Dist: alembic>=1.11.0
+Requires-Dist: requests>=2.31.0
+Requires-Dist: dnspython>=2.4.0
+Requires-Dist: python-whois>=0.8.0
+Requires-Dist: phonenumbers>=8.13.0
+Requires-Dist: networkx>=3.4
+Requires-Dist: pyvis>=0.3.1
+Requires-Dist: reportlab>=4.0.0
+Requires-Dist: matplotlib>=3.8.0
+Requires-Dist: validators>=0.20.0
+
+# DarkTrace X
+
+DarkTrace X is a CLI-first cyber intelligence and investigation operating system for security researchers, DFIR teams, and threat intelligence professionals.
+
+## Install
+
+```bash
+git clone <repo-url>
+cd "DarkTrace X"
+chmod +x install.sh
+./install.sh
+```
+
+## Run
+
+```bash
+darktrace
+```
+
+## Supported Modules
+
+- Phone Number
+- Email Address
+- Domain
+- IP Address
+- Organization
+- Website
+- Social Profile
+- Investigations
+- Reports
+- Settings
+
+## Architecture
+
+- CLI gateway: `darktracex.cli`
+- Interactive TUI: `darktracex.app`
+- Investigation engine, entity engine, timeline engine, reporting engine
+- SQLite database using SQLAlchemy
+- Plugin system for dynamic module extension

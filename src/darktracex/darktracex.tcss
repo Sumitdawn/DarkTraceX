@@ -1,0 +1,70 @@
+Screen {
+    background: black;
+    color: white;
+}
+
+Header {
+    background: black;
+    color: cyan;
+}
+
+Footer {
+    background: black;
+    color: cyan;
+}
+
+Horizontal {
+    height: 1fr;
+}
+
+#left-pane {
+    width: 30%;
+    min-width: 25;
+    max-width: 40;
+    border: round cyan;
+    background: black;
+}
+
+#right-pane {
+    width: 70%;
+    border: round cyan;
+    background: black;
+}
+
+#menu-title {
+    color: cyan;
+    text-style: bold;
+    margin: 1;
+}
+
+#menu-list {
+    height: 1fr;
+}
+
+#target-input {
+    margin: 1;
+}
+
+#run-button {
+    width: 100%;
+    margin: 1;
+}
+
+#status-panel {
+    height: 8;
+    border: round green;
+}
+
+#output-panel {
+    height: 1fr;
+    border: round magenta;
+    overflow-y: auto;
+}
+
+Banner {
+    width: 100%;
+    height: auto;
+    background: black;
+    color: red;
+    padding: 1;
+}
