@@ -203,6 +203,13 @@ class DarkTraceXApp(App):
         lines.append(f"Risk Score: {risk_score}")
         if context.investigation_id:
             lines.append(f"Investigation ID: {context.investigation_id}")
+
+        case_risk = context.metadata.get("case_risk", {})
+        if case_risk:
+            lines.append(f"Case Risk Level: {case_risk.get('risk_level', 'N/A')}")
+            lines.append(f"Correlation Density: {case_risk.get('relationship_density', 0.0):.2f}")
+            lines.append(f"Entity Confidence: {case_risk.get('entity_confidence', 0.0):.2f}")
+            lines.append(f"Relationship Confidence: {case_risk.get('relationship_confidence', 0.0):.2f}")
         lines.append("")
         lines.append(separator)
         lines.append("TIMELINE")
@@ -211,6 +218,16 @@ class DarkTraceXApp(App):
                 lines.append(f"{event}")
         else:
             lines.append("No timeline events recorded.")
+        lines.append("")
+        lines.append(separator)
+        lines.append("CASE INSIGHTS")
+        if context.leads:
+            for lead in context.leads:
+                lines.append(f"- [{lead.confidence:.2f}] {lead.title}")
+                lines.append(f"  Target: {lead.target}")
+                lines.append(f"  {lead.description}")
+        else:
+            lines.append("No recommended leads could be generated from this investigation.")
         lines.append("")
         lines.append(separator)
         lines.append("FINDINGS")
@@ -241,6 +258,8 @@ class DarkTraceXApp(App):
         lines.append(separator)
         lines.append("RISK ASSESSMENT")
         lines.append(f"Risk Score: {risk_score}")
+        if case_risk:
+            lines.append(f"Case Risk Level: {case_risk.get('risk_level', 'N/A')}")
         return "\n".join(lines)
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
@@ -275,6 +294,7 @@ class DarkTraceXApp(App):
 
         investigation_start = datetime.now()
         try:
+            self.correlation_engine.reset()
             results = await asyncio.to_thread(handler, target)
             context = self.investigation_engine.create(module_name, target)
             for finding in results.findings:
@@ -284,20 +304,53 @@ class DarkTraceXApp(App):
             self.investigation_engine.record(context)
             self.correlation_engine.add_module_result(module_name, target, results)
 
+            context.metadata["correlation_summary"] = self.correlation_engine.get_correlation_summary()
+            context.metadata["case_risk"] = self.correlation_engine.get_case_risk()
+            for lead in self.correlation_engine.get_recommended_leads():
+                context.add_lead(lead)
+
             elapsed = datetime.now() - investigation_start
             duration = f"{elapsed.total_seconds():.1f}s"
             risk_score = self._calculate_risk_score(results.findings)
 
             self.status.update_status("Investigation complete. Formatting output...")
             formatted = self.format_results(context, duration, risk_score)
-            print("=" * 60)
-            print("MODULE EXECUTED")
-            print("FINDINGS:", len(results.findings))
-            print("TIMELINE:", len(results.timeline))
-            print("=" * 60)
             self.display_results(formatted)
-            print(formatted)
-            self.status.update_status("Investigation complete. Use mouse wheel or j/k to scroll.")
+
+            sources = sorted({finding.source for finding in context.findings if finding.source})
+            summary_text = (
+                "Executive summary synthesized from investigation findings, correlation analysis, "
+                "and actionable lead generation."
+            )
+            try:
+                self.report_engine.generate_json(
+                    context.investigation_id,
+                    summary_text,
+                    context.findings,
+                    context.timeline,
+                    sources,
+                    metadata=context.metadata,
+                    correlation=context.metadata.get("correlation_summary", {}),
+                    leads=context.leads,
+                )
+                self.report_engine.generate_html(
+                    context.investigation_id,
+                    summary_text,
+                    context.findings,
+                    context.timeline,
+                    sources,
+                    metadata=context.metadata,
+                    correlation=context.metadata.get("correlation_summary", {}),
+                    leads=context.leads,
+                )
+                self.status.update_status(
+                    "Investigation complete. Reports generated and output displayed. Scroll with mouse wheel or k/j."
+                )
+            except Exception as report_exc:
+                self.logger.exception("Report generation failed")
+                self.status.update_status(
+                    f"Investigation complete. Report generation failed: {report_exc}"
+                )
         except Exception as exc:
             self.logger.exception("Investigation error")
             self.status.update_status(f"Investigation error: {exc}")
@@ -331,18 +384,17 @@ class DarkTraceXApp(App):
         self.exit()
 
     def _discover_correlations(self, context: InvestigationContext) -> list[str]:
-        """Discover correlations between findings based on source and category."""
-        sources = [finding.source for finding in context.findings if finding.source]
-        categories = [finding.category for finding in context.findings if finding.category]
+        """Discover correlations from the internal correlation engine summary."""
+        summary = context.metadata.get("correlation_summary", {})
         correlations: list[str] = []
 
-        duplicate_sources = {source for source in sources if sources.count(source) > 1}
-        duplicate_categories = {category for category in categories if categories.count(category) > 1}
+        for item in summary.get("top_correlations", [])[:5]:
+            correlations.append(
+                f"{item['source']} -> {item['target']} ({item['type']}, confidence {item['confidence']:.2f})"
+            )
 
-        if duplicate_sources:
-            correlations.append(f"Repeated source references: {', '.join(sorted(duplicate_sources))}")
-        if duplicate_categories:
-            correlations.append(f"Multiple findings in related categories: {', '.join(sorted(duplicate_categories))}")
+        if not correlations and summary.get("total_relationships", 0) > 0:
+            correlations.append("Correlation graph identifies relationships, but no high-confidence top links were surfaced.")
         if not correlations and len(context.findings) > 1:
             correlations.append("Multiple findings suggest a broader threat surface.")
 

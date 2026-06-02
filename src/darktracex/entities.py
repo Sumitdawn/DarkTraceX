@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Any
 
 
 @dataclass
@@ -10,6 +11,15 @@ class SourceReference:
     timestamp: str
     confidence: float
     details: str
+
+
+@dataclass
+class Lead:
+    category: str
+    title: str
+    description: str
+    target: str
+    confidence: float
 
 
 @dataclass
@@ -35,8 +45,13 @@ class InvestigationContext:
     target: str
     findings: list[Finding] = field(default_factory=list)
     timeline: list[str] = field(default_factory=list)
-    metadata: dict = field(default_factory=dict)
+    leads: list[Lead] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def add_event(self, event: str) -> None:
         timestamp = datetime.utcnow().strftime("%H:%M:%S")
         self.timeline.append(f"[{timestamp}] {event}")
+
+    def add_lead(self, lead: Lead) -> None:
+        self.leads.append(lead)
+        self.add_event(f"Lead generated: {lead.title}")

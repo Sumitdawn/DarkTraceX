@@ -29,10 +29,13 @@ def run_email_intel(target: str) -> ModuleResult:
     if domain:
         try:
             records = {rtype: [str(r.to_text()) for r in dns.resolver.resolve(domain, rtype, lifetime=10)] for rtype in ["MX", "NS", "TXT"]}
+            txt_values = " ".join(records.get("TXT", []))
+            spf = "Present" if "v=spf1" in txt_values.lower() else "Missing"
+            dmarc = "Present" if "v=dmarc1" in txt_values.lower() else "Missing"
             result.findings.append(Finding(
                 category="DNS Records",
                 title="Email domain DNS analysis",
-                details=f"MX: {records.get('MX', [])}; NS: {records.get('NS', [])}.",
+                details=f"MX: {records.get('MX', [])}; NS: {records.get('NS', [])}; SPF: {spf}; DMARC: {dmarc}.",
                 source="dns.resolver",
                 timestamp=timestamp,
                 confidence=round_confidence(0.85),

@@ -13,7 +13,7 @@ from typing import Dict, List, Optional, Set, Tuple
 
 import networkx as nx
 
-from ..entities import Finding, ModuleResult
+from ..entities import Finding, Lead, ModuleResult
 from ..utils import now_iso, round_confidence
 
 
@@ -56,7 +56,16 @@ class CorrelationEngine:
         self.graph: nx.DiGraph = nx.DiGraph()
         self.entities: Dict[str, Entity] = {}
         self.relationships: List[Relationship] = []
+        self.leads: List[Lead] = []
         self.timeline: List[str] = []
+
+    def reset(self) -> None:
+        """Reset the correlation engine for a new investigation."""
+        self.graph.clear()
+        self.entities.clear()
+        self.relationships.clear()
+        self.leads.clear()
+        self.timeline.clear()
 
     def add_module_result(
         self, module_name: str, target: str, result: ModuleResult
@@ -70,6 +79,9 @@ class CorrelationEngine:
             findings=result.findings,
             timeline=result.timeline,
         )
+        if result.findings:
+            confidence_avg = sum(f.confidence for f in result.findings) / len(result.findings)
+            base_entity.confidence = round_confidence(confidence_avg)
 
         self.entities[base_entity.eid] = base_entity
         self.graph.add_node(base_entity.eid, entity=base_entity)
@@ -80,8 +92,6 @@ class CorrelationEngine:
             if entity.eid not in self.entities:
                 self.entities[entity.eid] = entity
                 self.graph.add_node(entity.eid, entity=entity)
-
-            # Create relationship
             self._correlate_entities(base_entity, entity, result.findings)
 
         self.timeline.append(
@@ -98,6 +108,7 @@ class CorrelationEngine:
         """Extract potential entities from finding details."""
 
         extracted = []
+        seen_ids: Set[str] = set()
         email_regex = r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
         domain_regex = r"(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}"
         ip_regex = r"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b"
@@ -108,14 +119,17 @@ class CorrelationEngine:
             # Extract emails
             for match in re.finditer(email_regex, text):
                 email = match.group()
-                entity = Entity(
-                    eid=f"email_{email}",
-                    entity_type="email",
-                    value=email,
-                    confidence=round_confidence(0.75),
-                )
-                if entity.eid not in self.entities:
-                    extracted.append(entity)
+                entity_id = f"email_{email}"
+                if entity_id not in self.entities and entity_id not in seen_ids:
+                    extracted.append(
+                        Entity(
+                            eid=entity_id,
+                            entity_type="email",
+                            value=email,
+                            confidence=round_confidence(0.75),
+                        )
+                    )
+                    seen_ids.add(entity_id)
 
             # Extract domains
             for match in re.finditer(domain_regex, text):
@@ -125,33 +139,38 @@ class CorrelationEngine:
                     and len(domain) > 5
                     and not domain.startswith(".")
                 ):
-                    entity = Entity(
-                        eid=f"domain_{domain}",
-                        entity_type="domain",
-                        value=domain,
-                        confidence=round_confidence(0.70),
-                    )
-                    if entity.eid not in self.entities:
-                        extracted.append(entity)
+                    entity_id = f"domain_{domain}"
+                    if entity_id not in self.entities and entity_id not in seen_ids:
+                        extracted.append(
+                            Entity(
+                                eid=entity_id,
+                                entity_type="domain",
+                                value=domain,
+                                confidence=round_confidence(0.70),
+                            )
+                        )
+                        seen_ids.add(entity_id)
 
             # Extract IPs
             for match in re.finditer(ip_regex, text):
                 ip = match.group()
-                # Skip private IPs and 0.0.0.0
                 if not (
                     ip.startswith("192.168.")
                     or ip.startswith("10.")
                     or ip.startswith("172.")
                     or ip == "0.0.0.0"
                 ):
-                    entity = Entity(
-                        eid=f"ip_{ip}",
-                        entity_type="ip",
-                        value=ip,
-                        confidence=round_confidence(0.80),
-                    )
-                    if entity.eid not in self.entities:
-                        extracted.append(entity)
+                    entity_id = f"ip_{ip}"
+                    if entity_id not in self.entities and entity_id not in seen_ids:
+                        extracted.append(
+                            Entity(
+                                eid=entity_id,
+                                entity_type="ip",
+                                value=ip,
+                                confidence=round_confidence(0.80),
+                            )
+                        )
+                        seen_ids.add(entity_id)
 
         return extracted
 
@@ -261,6 +280,77 @@ class CorrelationEngine:
         """Retrieve entity by ID."""
         return self.entities.get(eid)
 
+    def get_case_risk(self) -> Dict[str, float | str]:
+        """Estimate overall case risk and correlation intensity."""
+        total_entities = max(1, len(self.entities))
+        total_relationships = max(1, len(self.relationships))
+        entity_confidence = sum(e.confidence for e in self.entities.values()) / total_entities
+        relationship_confidence = sum(r.confidence for r in self.relationships) / total_relationships
+        relationship_density = min(1.0, len(self.relationships) / total_entities)
+        score = round_confidence(
+            (entity_confidence * 0.35)
+            + (relationship_confidence * 0.45)
+            + (relationship_density * 0.20)
+        )
+        if score >= 0.80:
+            level = "HIGH"
+        elif score >= 0.60:
+            level = "MEDIUM"
+        elif score >= 0.40:
+            level = "LOW"
+        else:
+            level = "VERY LOW"
+
+        return {
+            "risk_score": score,
+            "risk_level": level,
+            "relationship_density": round_confidence(relationship_density),
+            "entity_confidence": round_confidence(entity_confidence),
+            "relationship_confidence": round_confidence(relationship_confidence),
+        }
+
+    def get_recommended_leads(self) -> List[Lead]:
+        """Generate investigation leads based on correlation signals."""
+        if self.leads:
+            return self.leads
+
+        leads: list[Lead] = []
+        strong_relationships = sorted(
+            self.relationships, key=lambda r: r.confidence, reverse=True
+        )[:5]
+        for rel in strong_relationships:
+            leads.append(
+                Lead(
+                    category="Correlation Lead",
+                    title=f"Investigate relationship between {rel.entity1.value} and {rel.entity2.value}",
+                    description=(
+                        f"Detected a {rel.relationship_type} connection with confidence {rel.confidence}. "
+                        f"Evidence: {', '.join(rel.evidence[:2])}."
+                    ),
+                    target=f"{rel.entity1.value} -> {rel.entity2.value}",
+                    confidence=rel.confidence,
+                )
+            )
+
+        if not leads and self.entities:
+            for entity in self.entities.values():
+                if self.graph.degree(entity.eid) == 0 and len(leads) < 3:
+                    leads.append(
+                        Lead(
+                            category="Entity Lead",
+                            title=f"Investigate isolated entity {entity.value}",
+                            description=(
+                                "Entity was detected but has no strong relationship links. "
+                                "Validate its origin and whether it belongs to the target threat cluster."
+                            ),
+                            target=entity.value,
+                            confidence=entity.confidence,
+                        )
+                    )
+
+        self.leads = leads
+        return leads
+
     def get_related_entities(
         self, eid: str, relationship_type: Optional[str] = None
     ) -> List[Tuple[Entity, Relationship]]:
@@ -311,6 +401,7 @@ class CorrelationEngine:
             "total_relationships": len(self.relationships),
             "entity_breakdown": {},
             "top_correlations": [],
+            "recommended_leads": [lead.__dict__ for lead in self.get_recommended_leads()],
             "timeline": self.timeline[-20:],  # Last 20 events
         }
 
