@@ -12,7 +12,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 from textual.app import App, ComposeResult
-from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
 from textual.widgets import Button, Footer, Header, Input, Label, ListItem, ListView, RichLog, Static
 
@@ -160,7 +160,6 @@ class DarkTraceXApp(App):
                 yield Button("Run Investigation", id="run-button", variant="primary")
                 yield StatusPanel(id="status-panel")
             with Vertical(id="right-pane"):
-                yield StatusPanel(id="status-panel")
                 yield RichLog(id="output-panel", highlight=True, markup=True, wrap=True)
         yield Footer()
 
@@ -330,3 +329,21 @@ class DarkTraceXApp(App):
 
     def action_quit(self) -> None:
         self.exit()
+
+    def _discover_correlations(self, context: InvestigationContext) -> list[str]:
+        """Discover correlations between findings based on source and category."""
+        sources = [finding.source for finding in context.findings if finding.source]
+        categories = [finding.category for finding in context.findings if finding.category]
+        correlations: list[str] = []
+
+        duplicate_sources = {source for source in sources if sources.count(source) > 1}
+        duplicate_categories = {category for category in categories if categories.count(category) > 1}
+
+        if duplicate_sources:
+            correlations.append(f"Repeated source references: {', '.join(sorted(duplicate_sources))}")
+        if duplicate_categories:
+            correlations.append(f"Multiple findings in related categories: {', '.join(sorted(duplicate_categories))}")
+        if not correlations and len(context.findings) > 1:
+            correlations.append("Multiple findings suggest a broader threat surface.")
+
+        return correlations
