@@ -3,14 +3,16 @@ from __future__ import annotations
 import asyncio
 import logging
 import textwrap
+from datetime import datetime
 from typing import Any
 
 import textual
-from rich.console import Group, RenderableType
+from rich.console import RenderableType
 from rich.panel import Panel
+from rich.table import Table
 from rich.text import Text
 from textual.app import App, ComposeResult
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.reactive import reactive
 from textual.widgets import Button, Footer, Header, Input, Label, ListItem, ListView, Static
 
@@ -50,97 +52,157 @@ MODULE_MAP = {
 
 class Banner(Static):
     def render(self) -> Panel:
-        width = max(self.size.width or 80, 80)
-        if width >= 90:
-            ascii_art = """
-██████╗  █████╗ ██████╗ ██╗  ██╗████████╗██████╗  █████╗  ██████╗███████╗
-██╔══██╗██╔══██╗██╔══██╗██║ ██╔╝╚══██╔══╝██╔══██╗██╔══██╗██╔════╝██╔════╝
-██║  ██║███████║██████╔╝█████╔╝    ██║   ██████╔╝███████║██║     █████╗
-██║  ██║██╔══██║██╔══██╗██╔═██╗    ██║   ██╔══██╗██╔══██║██║     ██╔══╝
-██████╔╝██║  ██║██║  ██║██║  ██╗   ██║   ██║  ██║██║  ██║╚██████╗███████╗
-╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝
-
-                       X
-
-Cyber Intelligence Investigation Engine
-
-MADE IN INDIA 🇮🇳
-
-Author: Darkscripters
-"""
-        else:
-            ascii_art = """
- ██████╗  █████╗ ██████╗ ██╗  ██╗████████╗██████╗  █████╗
-██╔══██╗██╔══██╗██╔══██╗██║ ██╔╝╚══██╔══╝██╔══██╗██╔══██╗
-██║  ██║███████║██████╔╝█████╔╝    ██║   ██████╔╝███████║
-██║  ██║██╔══██║██╔══██╗██╔═██╗    ██║   ██╔══██╗██╔══██║
-██████╔╝██║  ██║██║  ██║██║  ██╗   ██║   ██║  ██║██║  ██║
-╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝
-
-                     DARKTRACE X
-
-        Cyber Intelligence Investigation Engine
-        MADE IN INDIA 🇮🇳
-        Author: Darkscripters
-"""
+        ascii_art = "\n".join(
+            [
+                "DARKTRACE X",
+                "Cyber Intelligence Investigation Engine",
+                "Made in India | Author: Darkscripters",
+            ]
+        )
         banner_text = Text(ascii_art, style="bold red on black", justify="center")
         return Panel(
             banner_text,
             border_style="bright_cyan",
             style="on black",
-            padding=(1, 2),
+            padding=(0, 1),
+            expand=False,
         )
 
 
 class StatusPanel(Static):
-    status_text = reactive("Initializing...")
+    status_text = reactive("Ready. Select a module and enter a target.")
 
     def update_status(self, content: str) -> None:
         self.status_text = content
         self.refresh()
 
     def render(self) -> Panel:
-        return Panel(self.status_text, title="Status", border_style="green")
+        return Panel(
+            self.status_text,
+            title="Status",
+            border_style="green",
+            padding=(1, 1),
+        )
 
 
-class OutputPanel(Static):
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        self._entries: list[RenderableType] = []
+class SummaryPanel(Static):
+    summary_data: dict[str, str] = {}
 
-    def write(self, data: str | RenderableType, scroll_end: bool | None = None) -> "OutputPanel":
-        if isinstance(data, str):
-            try:
-                entry = Text.from_markup(data, style="white")
-            except Exception:
-                entry = Text(data, style="white")
-            self._entries.append(entry)
-        else:
-            self._entries.append(data)
+    def update_summary(
+        self,
+        target: str,
+        module: str,
+        elapsed: str,
+        findings_count: int,
+        risk_score: str,
+    ) -> None:
+        self.summary_data = {
+            "Target": target,
+            "Module": module,
+            "Investigation Time": elapsed,
+            "Findings Count": str(findings_count),
+            "Risk Score": risk_score,
+        }
         self.refresh()
-        return self
 
-    def clear(self) -> None:
-        self._entries.clear()
-        self.refresh()
-
-    def render(self) -> RenderableType:
-        if self._entries:
-            body = Group(*self._entries)
+    def render(self) -> Panel:
+        if not self.summary_data:
+            body = Text("No investigation summary available.", style="yellow")
         else:
-            body = Text("Ready. Select a module to investigate.", style="green")
+            table = Table.grid(expand=True)
+            table.add_column(ratio=1, style="cyan bold")
+            table.add_column(ratio=2, style="white")
+            for label, value in self.summary_data.items():
+                table.add_row(f"{label}:", value)
+            body = table
         return Panel(
             body,
-            title="Investigation Output",
-            border_style="bright_magenta",
+            title="Investigation Summary",
+            border_style="green",
             padding=(1, 1),
-            expand=True,
         )
+
+
+class FindingPanel(Static):
+    def __init__(self, index: int, finding: Finding, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.index = index
+        self.finding = finding
+
+    def render(self) -> Panel:
+        panel_text = Text()
+        panel_text.append("Category: ", style="cyan bold")
+        panel_text.append(f"{self.finding.category or 'Unknown'}\n", style="white")
+        panel_text.append("Title: ", style="cyan bold")
+        panel_text.append(f"{self.finding.title}\n", style="white bold")
+        panel_text.append("Source: ", style="cyan bold")
+        panel_text.append(f"{self.finding.source or 'Unknown'}\n", style="white")
+        panel_text.append("Confidence: ", style="cyan bold")
+        panel_text.append(f"{self.finding.confidence:.2f}\n\n", style=self._confidence_style())
+        panel_text.append("Details:\n", style="cyan bold")
+        details = self.finding.details or "No details provided."
+        for line in textwrap.wrap(details, width=72):
+            panel_text.append(f"{line}\n", style="white")
+
+        return Panel(
+            panel_text,
+            title=f"Finding #{self.index}",
+            border_style=self._confidence_style(),
+            padding=(1, 1),
+        )
+
+    def _confidence_style(self) -> str:
+        if self.finding.confidence >= 0.75:
+            return "green"
+        if self.finding.confidence >= 0.45:
+            return "yellow"
+        return "red"
+
+
+class FindingsScroll(VerticalScroll):
+    async def update_findings(self, findings: list[Finding]) -> None:
+        self.clear()
+        if not findings:
+            await self.mount(
+                Static(
+                    "No findings identified for this investigation.",
+                    style="yellow",
+                )
+            )
+            return
+
+        for index, finding in enumerate(findings, start=1):
+            await self.mount(FindingPanel(index=index, finding=finding))
+
+
+class TimelineScroll(VerticalScroll):
+    async def update_timeline(self, timeline: list[str]) -> None:
+        self.clear()
+        if not timeline:
+            await self.mount(
+                Static(
+                    "No timeline events recorded.",
+                    style="yellow",
+                )
+            )
+            return
+
+        timeline_text = Text()
+        for event in timeline:
+            timeline_text.append("• ", style="cyan")
+            timeline_text.append(f"{event}\n", style="white")
+        await self.mount(Static(timeline_text))
 
 
 class DarkTraceXApp(App):
     CSS_PATH = "darktracex.tcss"
-    BINDINGS = [("q", "quit","Quit")]
+    BINDINGS = [
+        ("q", "quit", "Quit"),
+        ("j", "scroll_down", "Scroll Down"),
+        ("k", "scroll_up", "Scroll Up"),
+        ("pgdown", "page_down", "Page Down"),
+        ("pgup", "page_up", "Page Up"),
+    ]
 
     selected_module = reactive("Phone Number")
     current_workspace = reactive("")
@@ -188,7 +250,7 @@ class DarkTraceXApp(App):
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
-        yield Banner()
+        yield Banner(id="banner")
         with Horizontal():
             with Vertical(id="left-pane"):
                 yield Static("Main Menu", id="menu-title")
@@ -197,25 +259,30 @@ class DarkTraceXApp(App):
                     row = ListItem(Label(item))
                     row.module_name = item
                     menu_items.append(row)
-                list_view = ListView(*menu_items, id="menu-list")
-                yield list_view
+                yield ListView(*menu_items, id="menu-list")
                 yield Input(placeholder="Enter target and press Enter", id="target-input")
                 yield Button("Run Investigation", id="run-button", variant="primary")
-            with Vertical(id="right-pane"):
                 yield StatusPanel(id="status-panel")
-                yield OutputPanel(id="output-panel")
+            with Vertical(id="right-pane"):
+                yield SummaryPanel(id="summary-panel")
+                yield FindingsScroll(id="findings-scroll")
+                yield TimelineScroll(id="timeline-scroll")
         yield Footer()
 
     async def on_mount(self) -> None:
         self.status = self.query_one(StatusPanel)
-        self.output = self.query_one(OutputPanel)
+        self.summary = self.query_one(SummaryPanel)
+        self.findings_scroll = self.query_one(FindingsScroll)
+        self.timeline_scroll = self.query_one(TimelineScroll)
         self.update_header()
+
         try:
             loaded_plugins = self.plugin_registry.load()
             self.logger.info("Loaded %d plugins", len(loaded_plugins))
         except Exception as exc:
             self.logger.exception("Plugin loading failed")
-            self.output.write(f"Plugin loading failed: {exc}")
+            self.status.update_status(f"Plugin loading failed: {exc}")
+
         self.update_status()
 
     def update_header(self) -> None:
@@ -228,15 +295,15 @@ class DarkTraceXApp(App):
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         self.selected_module = getattr(event.item, "module_name", "")
-        self.output.write(f"Selected module: {self.selected_module}. Enter a target and run investigation.")
-        self.update_status()
+        self.status.update_status(f"Selected {self.selected_module}. Enter target and run investigation.")
+        self.update_header()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "run-button":
             target_input = self.query_one(Input)
             target = target_input.value.strip()
             if not target:
-                self.output.write("Please enter a valid target before running an investigation.")
+                self.status.update_status("Please enter a valid target before running an investigation.")
                 return
             if self.selected_module == "Exit":
                 self.exit()
@@ -246,20 +313,25 @@ class DarkTraceXApp(App):
     async def start_investigation(self, module_name: str, target: str) -> None:
         self.active_investigations += 1
         self.update_status()
-        self.output.clear()
-        self.output.write(f"Starting {module_name} investigation for {target}...")
-        self.status.update_status("Collecting intelligence...")
-        self.logger.info("Running module: %s", module_name)
-        self.logger.info("Target: %s", target)
-        await asyncio.sleep(0.1)
+        self.status.update_status(f"Running {module_name} investigation for {target}...")
+        self.summary.update_summary(
+            target=target,
+            module=module_name,
+            elapsed="0.0s",
+            findings_count=0,
+            risk_score="N/A",
+        )
+        self.findings_scroll.clear()
+        self.timeline_scroll.clear()
 
         handler = MODULE_MAP.get(module_name)
         if handler is None:
-            self.output.write(f"The module '{module_name}' is currently unavailable.")
+            self.status.update_status(f"The module '{module_name}' is currently unavailable.")
             self.active_investigations -= 1
             self.update_status()
             return
 
+        investigation_start = datetime.now()
         try:
             results = await asyncio.to_thread(handler, target)
             context = self.investigation_engine.create(module_name, target)
@@ -270,245 +342,53 @@ class DarkTraceXApp(App):
             self.investigation_engine.record(context)
             self.correlation_engine.add_module_result(module_name, target, results)
 
-            self.logger.info("Findings: %d", len(results.findings))
-            self.logger.info("Timeline: %d", len(results.timeline))
+            elapsed = datetime.now() - investigation_start
+            duration = f"{elapsed.total_seconds():.1f}s"
+            risk_score = self._calculate_risk_score(results.findings)
 
-            for section in self.format_results(context):
-                self.output.write(section)
-            self.output.write(self._build_correlation_summary_panel())
+            self.summary.update_summary(
+                target=target,
+                module=module_name,
+                elapsed=duration,
+                findings_count=len(results.findings),
+                risk_score=risk_score,
+            )
+            await self.findings_scroll.update_findings(results.findings)
+            await self.timeline_scroll.update_timeline(results.timeline)
 
-            self.status.update_status("Investigation complete. Generate a report from the reports menu.")
+            self.status.update_status("Investigation complete. Use mouse wheel or j/k to scroll.")
         except Exception as exc:
             self.logger.exception("Investigation error")
-            self.output.write(f"Investigation error: {exc}")
+            self.status.update_status(f"Investigation error: {exc}")
         finally:
             self.active_investigations -= 1
             self.update_status()
 
-    def format_results(self, context: InvestigationContext) -> list[RenderableType]:
-        sections: list[RenderableType] = []
-        sections.append(self._build_executive_summary_panel(context))
-        sections.append(self._build_metadata_panel(context))
-        sections.append(self._build_timeline_panel(context))
-        sections.extend(self._build_findings_sections(context))
-        sections.append(self._build_risk_panel(context))
-        sections.append(self._build_correlation_panel(context))
-        sections.append(self._build_evidence_panel(context))
-        sections.append(self._build_analyst_notes_panel(context))
-        return sections
-
-    def _build_executive_summary_panel(self, context: InvestigationContext) -> RenderableType:
-        summary = Text()
-        summary.append("Executive Summary\n", style="cyan bold underline")
-        summary.append("----------------------------------------\n", style="cyan")
-        summary.append(f"Target: {context.target}\n", style="white bold")
-        summary.append(f"Module: {context.entity_type}\n", style="white")
-        summary.append(f"Findings: {len(context.findings)}\n", style="white")
-        summary.append(f"Timeline events: {len(context.timeline)}\n", style="white")
-        if context.findings:
-            highest = max(context.findings, key=lambda f: f.confidence)
-            summary.append(f"Highest confidence finding: {highest.title} ({highest.confidence:.2f})\n", style="green")
-        else:
-            summary.append("No verifiable public evidence discovered.\n", style="yellow")
-
-        return Panel(
-            summary,
-            title="Executive Summary",
-            border_style="cyan",
-            padding=(1, 1),
-        )
-
-    def _build_metadata_panel(self, context: InvestigationContext) -> RenderableType:
-        metadata = []
-        metadata.append(("Investigation ID", context.investigation_id or "N/A"))
-        metadata.append(("Target", context.target))
-        metadata.append(("Module", context.entity_type))
-        if context.metadata:
-            for key, value in context.metadata.items():
-                metadata.append((str(key), str(value)))
-
-        lines = Text()
-        for name, value in metadata:
-            lines.append(f"{name}: ", style="cyan bold")
-            lines.append(f"{value}\n", style="white")
-
-        return Panel(
-            lines,
-            title="Investigation Metadata",
-            border_style="cyan",
-            padding=(1, 1),
-        )
-
-    def _build_timeline_panel(self, context: InvestigationContext) -> RenderableType:
-        timeline_text = Text()
-        if context.timeline:
-            for event in context.timeline:
-                timeline_text.append("[✓] ", style="green")
-                timeline_text.append(f"{event}\n", style="white")
-        else:
-            timeline_text.append("No timeline events recorded.\n", style="yellow")
-
-        return Panel(
-            timeline_text,
-            title="Timeline",
-            border_style="cyan",
-            padding=(1, 1),
-        )
-
-    def _build_findings_sections(self, context: InvestigationContext) -> list[RenderableType]:
-        if not context.findings:
-            return [
-                Panel(
-                    Text("No findings were identified during this investigation.", style="yellow"),
-                    title="Findings",
-                    border_style="yellow",
-                    padding=(1, 1),
-                )
-            ]
-
-        sections: list[RenderableType] = []
-        for idx, finding in enumerate(context.findings, start=1):
-            finding_text = Text()
-            finding_text.append("Category:\n", style="cyan bold")
-            finding_text.append(f"{finding.category or 'Unknown'}\n\n", style="white")
-            finding_text.append("Title:\n", style="cyan bold")
-            finding_text.append(f"{finding.title}\n\n", style="white bold")
-            finding_text.append("Source:\n", style="cyan bold")
-            finding_text.append(f"{finding.source or 'Unknown'}\n\n", style="white")
-            finding_text.append("Confidence:\n", style="cyan bold")
-            quality = self._confidence_style(finding.confidence)
-            finding_text.append(f"{finding.confidence:.2f}\n\n", style=quality)
-            finding_text.append("Details:\n", style="cyan bold")
-            details = finding.details or "No details provided."
-            for line in textwrap.wrap(details, width=76):
-                finding_text.append(f"{line}\n", style="white")
-
-            border_style = "green" if finding.confidence >= 0.75 else "yellow" if finding.confidence >= 0.45 else "red"
-            sections.append(
-                Panel(
-                    finding_text,
-                    title=f"FINDING #{idx}",
-                    border_style=border_style,
-                    padding=(1, 1),
-                )
-            )
-            sections.append(Text("\n"))
-        return sections
-
-    def _build_risk_panel(self, context: InvestigationContext) -> RenderableType:
-        highest_confidence = max((finding.confidence for finding in context.findings), default=0.0)
-        if highest_confidence >= 0.75:
-            risk_level = "HIGH"
-            risk_style = "red"
-            assessment = "High-risk indicators detected. Immediate follow-up and containment recommended."
-        elif highest_confidence >= 0.45:
-            risk_level = "MEDIUM"
-            risk_style = "yellow"
-            assessment = "Moderate risk observed. Validate findings and continue monitoring."
-        else:
-            risk_level = "LOW"
-            risk_style = "green"
-            assessment = "Low risk based on current evidence, but watch for emerging correlations."
-
-        risk_text = Text()
-        risk_text.append("Risk Rating:\n", style="cyan bold")
-        risk_text.append(f"{risk_level}\n\n", style=f"{risk_style} bold")
-        risk_text.append("Assessment:\n", style="cyan bold")
-        for line in textwrap.wrap(assessment, width=76):
-            risk_text.append(f"{line}\n", style="white")
-
-        return Panel(
-            risk_text,
-            title="Risk Assessment",
-            border_style=risk_style,
-            padding=(1, 1),
-        )
-
-    def _build_correlation_panel(self, context: InvestigationContext) -> RenderableType:
-        correlations = self._discover_correlations(context)
-        correlation_text = Text()
-        if correlations:
-            correlation_text.append("Detected correlations:\n", style="cyan bold")
-            for line in correlations:
-                correlation_text.append(f"- {line}\n", style="white")
-        else:
-            correlation_text.append("No correlations identified from current findings.\n", style="yellow")
-
-        return Panel(
-            correlation_text,
-            title="Correlations",
-            border_style="cyan",
-            padding=(1, 1),
-        )
-
-    def _build_correlation_summary_panel(self) -> RenderableType:
-        summary = self.correlation_engine.get_correlation_summary()
-        summary_text = Text()
-        summary_text.append("Entity count: ", style="cyan bold")
-        summary_text.append(f"{summary['total_entities']}\n", style="white")
-        summary_text.append("Relationship count: ", style="cyan bold")
-        summary_text.append(f"{summary['total_relationships']}\n", style="white")
-        summary_text.append("Top correlations:\n", style="cyan bold")
-        for item in summary["top_correlations"][:5]:
-            summary_text.append(
-                f"- {item['source']} -> {item['target']} ({item['type']}, confidence {item['confidence']:.2f})\n",
-                style="white",
-            )
-        return Panel(
-            summary_text,
-            title="Correlation Summary",
-            border_style="cyan",
-            padding=(1, 1),
-        )
-
-    def _build_evidence_panel(self, context: InvestigationContext) -> RenderableType:
-        evidence_text = Text()
-        if context.findings:
-            evidence_text.append("Source attribution is documented per finding.\n", style="cyan bold")
-            evidence_text.append("Each finding contains the original source and confidence score.\n", style="white")
-        else:
-            evidence_text.append("No verifiable public evidence discovered.\n", style="yellow")
-        return Panel(
-            evidence_text,
-            title="Evidence",
-            border_style="cyan",
-            padding=(1, 1),
-        )
-
-    def _build_analyst_notes_panel(self, context: InvestigationContext) -> RenderableType:
-        notes = Text()
-        if not context.findings:
-            notes.append("No verifiable public evidence discovered. Investigation completed without source-backed findings.\n", style="yellow")
-        else:
-            notes.append("All findings are based on publicly accessible data sources and inferred correlations.\n", style="white")
-            notes.append("Verify high-risk indicators before operational action.\n", style="white")
-        return Panel(
-            notes,
-            title="Analyst Notes",
-            border_style="cyan",
-            padding=(1, 1),
-        )
-
-    def _discover_correlations(self, context: InvestigationContext) -> list[str]:
-        sources = [finding.source for finding in context.findings if finding.source]
-        categories = [finding.category for finding in context.findings if finding.category]
-        correlations: list[str] = []
-        duplicate_sources = {source for source in sources if sources.count(source) > 1}
-        duplicate_categories = {category for category in categories if categories.count(category) > 1}
-        if duplicate_sources:
-            correlations.append(f"Repeated source references: {', '.join(sorted(duplicate_sources))}")
-        if duplicate_categories:
-            correlations.append(f"Multiple findings in related categories: {', '.join(sorted(duplicate_categories))}")
-        if not correlations and len(context.findings) > 1:
-            correlations.append("Multiple findings suggest a broader threat surface.")
-        return correlations
-
-    def _confidence_style(self, confidence: float) -> str:
+    def _calculate_risk_score(self, findings: list[Finding]) -> str:
+        if not findings:
+            return "N/A"
+        confidence = max((finding.confidence for finding in findings), default=0.0)
         if confidence >= 0.75:
-            return "green"
+            return "HIGH"
         if confidence >= 0.45:
-            return "yellow"
-        return "red"
+            return "MEDIUM"
+        return "LOW"
+
+    def action_scroll_down(self) -> None:
+        scrollable = self.focused if isinstance(self.focused, VerticalScroll) else self.findings_scroll
+        scrollable.scroll_down()
+
+    def action_scroll_up(self) -> None:
+        scrollable = self.focused if isinstance(self.focused, VerticalScroll) else self.findings_scroll
+        scrollable.scroll_up()
+
+    def action_page_down(self) -> None:
+        scrollable = self.focused if isinstance(self.focused, VerticalScroll) else self.findings_scroll
+        scrollable.page_down()
+
+    def action_page_up(self) -> None:
+        scrollable = self.focused if isinstance(self.focused, VerticalScroll) else self.findings_scroll
+        scrollable.page_up()
 
     def action_quit(self) -> None:
         self.exit()

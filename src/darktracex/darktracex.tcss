@@ -13,58 +13,85 @@ Footer {
     color: cyan;
 }
 
-Horizontal {
-    height: 1fr;
+#banner {
+    height: auto;
+    min-height: 5;
+    max-height: 7;
+    background: black;
+    color: red;
+    padding: 0 1;
+    margin: 0 1 1 1;
 }
 
 #left-pane {
-    width: 30%;
-    min-width: 25;
+    width: 25%;
+    min-width: 32;
     max-width: 40;
     border: round cyan;
     background: black;
+    padding: 1;
 }
 
 #right-pane {
-    width: 70%;
+    width: 75%;
     border: round cyan;
     background: black;
+    padding: 1;
+    overflow: hidden;
+}
+
+#summary-panel {
+    height: 6;
+    border: round green;
+    background: black;
+    overflow: hidden;
+    margin-bottom: 1;
+}
+
+#findings-scroll {
+    height: 1fr;
+    border: round magenta;
+    background: black;
+    overflow-y: auto;
+    margin-bottom: 1;
+}
+
+#timeline-scroll {
+    height: 10;
+    border: round yellow;
+    background: black;
+    overflow-y: auto;
 }
 
 #menu-title {
     color: cyan;
     text-style: bold;
-    margin: 1;
+    margin-bottom: 1;
 }
 
 #menu-list {
     height: 1fr;
+    overflow-y: auto;
+    margin-bottom: 1;
 }
 
 #target-input {
-    margin: 1;
+    margin-bottom: 1;
 }
 
 #run-button {
     width: 100%;
-    margin: 1;
+    margin: 1 0;
 }
 
 #status-panel {
-    height: 8;
+    height: 6;
     border: round green;
-}
-
-#output-panel {
-    height: 1fr;
-    border: round magenta;
+    background: black;
+    margin-top: 1;
     overflow-y: auto;
 }
 
-Banner {
-    width: 100%;
-    height: auto;
+Static {
     background: black;
-    color: red;
-    padding: 1;
 }
