@@ -16,7 +16,6 @@ Footer {
 #banner {
     height: auto;
     min-height: 5;
-    max-height: 7;
     background: black;
     color: red;
     padding: 0 1;
@@ -24,41 +23,24 @@ Footer {
 }
 
 #left-pane {
-    width: 25%;
-    min-width: 32;
-    max-width: 40;
+    width: 30;
+    min-width: 30;
     border: round cyan;
     background: black;
     padding: 1;
 }
 
 #right-pane {
-    width: 75%;
+    width: 1fr;
     border: round cyan;
     background: black;
     padding: 1;
     overflow: hidden;
 }
 
-#summary-panel {
-    height: 6;
-    border: round green;
-    background: black;
-    overflow: hidden;
-    margin-bottom: 1;
-}
-
-#findings-scroll {
+#output-panel {
     height: 1fr;
     border: round magenta;
-    background: black;
-    overflow-y: auto;
-    margin-bottom: 1;
-}
-
-#timeline-scroll {
-    height: 10;
-    border: round yellow;
     background: black;
     overflow-y: auto;
 }

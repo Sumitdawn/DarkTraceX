@@ -14,7 +14,7 @@ from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.reactive import reactive
-from textual.widgets import Button, Footer, Header, Input, Label, ListItem, ListView, Static
+from textual.widgets import Button, Footer, Header, Input, Label, ListItem, ListView, RichLog, Static
 
 from .config import AppConfig
 from .core.correlation import CorrelationEngine
@@ -52,14 +52,19 @@ MODULE_MAP = {
 
 class Banner(Static):
     def render(self) -> Panel:
-        ascii_art = "\n".join(
-            [
-                "DARKTRACE X",
-                "Cyber Intelligence Investigation Engine",
-                "Made in India | Author: Darkscripters",
-            ]
-        )
-        banner_text = Text(ascii_art, style="bold red on black", justify="center")
+        width = self.size.width or 80
+        title = "DARKTRACEX"
+        origin = "MADE IN INDIA"
+        author = "Author: Darkscripters™"
+
+        if width < 50:
+            lines = [title, origin, author]
+        elif width < 80:
+            lines = [title, origin, author]
+        else:
+            lines = [title, origin, author]
+
+        banner_text = Text("\n".join(lines), style="bold red on black", justify="center")
         return Panel(
             banner_text,
             border_style="bright_cyan",
@@ -83,115 +88,6 @@ class StatusPanel(Static):
             border_style="green",
             padding=(1, 1),
         )
-
-
-class SummaryPanel(Static):
-    summary_data: dict[str, str] = {}
-
-    def update_summary(
-        self,
-        target: str,
-        module: str,
-        elapsed: str,
-        findings_count: int,
-        risk_score: str,
-    ) -> None:
-        self.summary_data = {
-            "Target": target,
-            "Module": module,
-            "Investigation Time": elapsed,
-            "Findings Count": str(findings_count),
-            "Risk Score": risk_score,
-        }
-        self.refresh()
-
-    def render(self) -> Panel:
-        if not self.summary_data:
-            body = Text("No investigation summary available.", style="yellow")
-        else:
-            table = Table.grid(expand=True)
-            table.add_column(ratio=1, style="cyan bold")
-            table.add_column(ratio=2, style="white")
-            for label, value in self.summary_data.items():
-                table.add_row(f"{label}:", value)
-            body = table
-        return Panel(
-            body,
-            title="Investigation Summary",
-            border_style="green",
-            padding=(1, 1),
-        )
-
-
-class FindingPanel(Static):
-    def __init__(self, index: int, finding: Finding, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self.index = index
-        self.finding = finding
-
-    def render(self) -> Panel:
-        panel_text = Text()
-        panel_text.append("Category: ", style="cyan bold")
-        panel_text.append(f"{self.finding.category or 'Unknown'}\n", style="white")
-        panel_text.append("Title: ", style="cyan bold")
-        panel_text.append(f"{self.finding.title}\n", style="white bold")
-        panel_text.append("Source: ", style="cyan bold")
-        panel_text.append(f"{self.finding.source or 'Unknown'}\n", style="white")
-        panel_text.append("Confidence: ", style="cyan bold")
-        panel_text.append(f"{self.finding.confidence:.2f}\n\n", style=self._confidence_style())
-        panel_text.append("Details:\n", style="cyan bold")
-        details = self.finding.details or "No details provided."
-        for line in textwrap.wrap(details, width=72):
-            panel_text.append(f"{line}\n", style="white")
-
-        return Panel(
-            panel_text,
-            title=f"Finding #{self.index}",
-            border_style=self._confidence_style(),
-            padding=(1, 1),
-        )
-
-    def _confidence_style(self) -> str:
-        if self.finding.confidence >= 0.75:
-            return "green"
-        if self.finding.confidence >= 0.45:
-            return "yellow"
-        return "red"
-
-
-class FindingsScroll(VerticalScroll):
-    async def update_findings(self, findings: list[Finding]) -> None:
-        self.clear()
-        if not findings:
-            await self.mount(
-                Static(
-                    "No findings identified for this investigation.",
-                    style="yellow",
-                )
-            )
-            return
-
-        for index, finding in enumerate(findings, start=1):
-            await self.mount(FindingPanel(index=index, finding=finding))
-
-
-class TimelineScroll(VerticalScroll):
-    async def update_timeline(self, timeline: list[str]) -> None:
-        self.clear()
-        if not timeline:
-            await self.mount(
-                Static(
-                    "No timeline events recorded.",
-                    style="yellow",
-                )
-            )
-            return
-
-        timeline_text = Text()
-        for event in timeline:
-            timeline_text.append("• ", style="cyan")
-            timeline_text.append(f"{event}\n", style="white")
-        await self.mount(Static(timeline_text))
 
 
 class DarkTraceXApp(App):
@@ -264,16 +160,13 @@ class DarkTraceXApp(App):
                 yield Button("Run Investigation", id="run-button", variant="primary")
                 yield StatusPanel(id="status-panel")
             with Vertical(id="right-pane"):
-                yield SummaryPanel(id="summary-panel")
-                yield FindingsScroll(id="findings-scroll")
-                yield TimelineScroll(id="timeline-scroll")
+                yield StatusPanel(id="status-panel")
+                yield RichLog(id="output-panel", highlight=True, markup=True, wrap=True)
         yield Footer()
 
     async def on_mount(self) -> None:
         self.status = self.query_one(StatusPanel)
-        self.summary = self.query_one(SummaryPanel)
-        self.findings_scroll = self.query_one(FindingsScroll)
-        self.timeline_scroll = self.query_one(TimelineScroll)
+        self.output = self.query_one("#output-panel", RichLog)
         self.update_header()
 
         try:
@@ -292,6 +185,64 @@ class DarkTraceXApp(App):
         self.status.update_status(
             f"Module: {self.selected_module}\nActive Investigations: {self.active_investigations}\nLoaded Plugins: {len(self.plugin_registry.active)}"
         )
+
+    def display_results(self, formatted: str) -> None:
+        self.output.clear()
+        for line in formatted.splitlines():
+            self.output.write(line)
+        self.output.scroll_end(animate=False)
+
+    def format_results(self, context: InvestigationContext, duration: str, risk_score: str) -> str:
+        lines: list[str] = []
+        separator = "# " + "=" * 48
+        lines.append(separator)
+        lines.append("INVESTIGATION SUMMARY")
+        lines.append(f"Target: {context.target}")
+        lines.append(f"Module: {context.entity_type}")
+        lines.append(f"Investigation Time: {duration}")
+        lines.append(f"Findings Count: {len(context.findings)}")
+        lines.append(f"Risk Score: {risk_score}")
+        if context.investigation_id:
+            lines.append(f"Investigation ID: {context.investigation_id}")
+        lines.append("")
+        lines.append(separator)
+        lines.append("TIMELINE")
+        if context.timeline:
+            for event in context.timeline:
+                lines.append(f"{event}")
+        else:
+            lines.append("No timeline events recorded.")
+        lines.append("")
+        lines.append(separator)
+        lines.append("FINDINGS")
+        if context.findings:
+            for idx, finding in enumerate(context.findings, start=1):
+                lines.append(f"[{idx}] {finding.title}")
+                lines.append(f"Category: {finding.category or 'Unknown'}")
+                lines.append(f"Source: {finding.source or 'Unknown'}")
+                lines.append(f"Confidence: {finding.confidence:.2f}")
+                lines.append("Details:")
+                details = finding.details or "No details provided."
+                for detail_line in details.splitlines():
+                    lines.append(f"{detail_line}")
+                if idx < len(context.findings):
+                    lines.append("---")
+        else:
+            lines.append("No findings identified during this investigation.")
+        lines.append("")
+        lines.append(separator)
+        lines.append("CORRELATION DATA")
+        correlations = self._discover_correlations(context)
+        if correlations:
+            for item in correlations:
+                lines.append(f"- {item}")
+        else:
+            lines.append("No correlations identified from current findings.")
+        lines.append("")
+        lines.append(separator)
+        lines.append("RISK ASSESSMENT")
+        lines.append(f"Risk Score: {risk_score}")
+        return "\n".join(lines)
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         self.selected_module = getattr(event.item, "module_name", "")
@@ -314,15 +265,7 @@ class DarkTraceXApp(App):
         self.active_investigations += 1
         self.update_status()
         self.status.update_status(f"Running {module_name} investigation for {target}...")
-        self.summary.update_summary(
-            target=target,
-            module=module_name,
-            elapsed="0.0s",
-            findings_count=0,
-            risk_score="N/A",
-        )
-        self.findings_scroll.clear()
-        self.timeline_scroll.clear()
+        self.output.clear()
 
         handler = MODULE_MAP.get(module_name)
         if handler is None:
@@ -346,16 +289,15 @@ class DarkTraceXApp(App):
             duration = f"{elapsed.total_seconds():.1f}s"
             risk_score = self._calculate_risk_score(results.findings)
 
-            self.summary.update_summary(
-                target=target,
-                module=module_name,
-                elapsed=duration,
-                findings_count=len(results.findings),
-                risk_score=risk_score,
-            )
-            await self.findings_scroll.update_findings(results.findings)
-            await self.timeline_scroll.update_timeline(results.timeline)
-
+            self.status.update_status("Investigation complete. Formatting output...")
+            formatted = self.format_results(context, duration, risk_score)
+            print("=" * 60)
+            print("MODULE EXECUTED")
+            print("FINDINGS:", len(results.findings))
+            print("TIMELINE:", len(results.timeline))
+            print("=" * 60)
+            self.display_results(formatted)
+            print(formatted)
             self.status.update_status("Investigation complete. Use mouse wheel or j/k to scroll.")
         except Exception as exc:
             self.logger.exception("Investigation error")
@@ -375,20 +317,16 @@ class DarkTraceXApp(App):
         return "LOW"
 
     def action_scroll_down(self) -> None:
-        scrollable = self.focused if isinstance(self.focused, VerticalScroll) else self.findings_scroll
-        scrollable.scroll_down()
+        self.output.scroll_down()
 
     def action_scroll_up(self) -> None:
-        scrollable = self.focused if isinstance(self.focused, VerticalScroll) else self.findings_scroll
-        scrollable.scroll_up()
+        self.output.scroll_up()
 
     def action_page_down(self) -> None:
-        scrollable = self.focused if isinstance(self.focused, VerticalScroll) else self.findings_scroll
-        scrollable.page_down()
+        self.output.page_down()
 
     def action_page_up(self) -> None:
-        scrollable = self.focused if isinstance(self.focused, VerticalScroll) else self.findings_scroll
-        scrollable.page_up()
+        self.output.page_up()
 
     def action_quit(self) -> None:
         self.exit()
