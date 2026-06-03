@@ -18,6 +18,10 @@ class Investigation(Base):
     updated_at: Mapped[datetime] = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     timeline: Mapped[str] = Column(Text, nullable=True)
     findings: Mapped[list["Finding"]] = relationship("Finding", back_populates="investigation", cascade="all, delete-orphan")
+    risk_score: Mapped[float] = Column(Float, nullable=True, default=0.0)
+    confidence_score: Mapped[float] = Column(Float, nullable=True, default=0.0)
+    investigator: Mapped[str] = Column(String(128), nullable=True)
+    evidence_json: Mapped[str] = Column(Text, nullable=True)
 
 
 class Finding(Base):

@@ -11,19 +11,22 @@ class InvestigationEngine:
     def __init__(self, session: Session) -> None:
         self.session = session
 
-    def create(self, entity_type: str, target: str) -> InvestigationContext:
+    def create(self, entity_type: str, target: str, investigator: str | None = None) -> InvestigationContext:
         investigation_id = generate_investigation_id(self.session)
         investigation = Investigation(
             investigation_id=investigation_id,
             entity_type=entity_type,
             target=target,
             status="running",
-            timeline="[]"
+            timeline="[]",
+            investigator=investigator,
         )
         self.session.add(investigation)
         self.session.commit()
         context = InvestigationContext(investigation_id=investigation_id, entity_type=entity_type, target=target)
         context.add_event("Investigation Started")
+        if investigator:
+            context.metadata["investigator"] = investigator
         return context
 
     def record(self, context: InvestigationContext) -> str:
@@ -44,6 +47,33 @@ class InvestigationEngine:
                 confidence=finding.confidence,
             )
             self.session.add(model)
+        # persist case-level metadata if present
+        case_risk = context.metadata.get("case_risk")
+        if case_risk:
+            try:
+                investigation.risk_score = float(case_risk.get("risk_score", 0.0))
+            except Exception:
+                investigation.risk_score = 0.0
+            try:
+                investigation.confidence_score = float(case_risk.get("entity_confidence", 0.0))
+            except Exception:
+                investigation.confidence_score = 0.0
+
+        if context.metadata.get("investigator"):
+            investigation.investigator = context.metadata.get("investigator")
+
+        # store structured evidence summary for quick access
+        try:
+            import json
+
+            evidence = {
+                "findings_count": len(context.findings),
+                "top_sources": sorted({f.source for f in context.findings if f.source})[:10],
+            }
+            investigation.evidence_json = json.dumps(evidence)
+        except Exception:
+            pass
+
         self.session.commit()
         return investigation.investigation_id
 
