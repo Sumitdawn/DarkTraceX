@@ -19,21 +19,18 @@ from textual.widgets import Button, Footer, Header, Input, Label, ListItem, List
 from .config import AppConfig
 from .core.correlation import CorrelationEngine
 from .db import init_db, SessionLocal
-from .entities import Finding, InvestigationContext
+from .entities import Finding, InvestigationContext, ModuleResult
 from .investigation import InvestigationEngine
 from .modules import phone, email, domain, ip, organization, username
 from .plugin_manager import PluginRegistry
 from .reports import ReportEngine
+from .utils import valid_email, valid_phone
+import ipaddress
 
 MENU_ITEMS = [
-    "Phone Number",
-    "Email Address",
-    "Domain",
-    "IP Address",
-    "Organization",
-    "Website",
-    "Social Profile",
-    "Investigations",
+    "New Investigation",
+    "Cases",
+    "Dashboard",
     "Reports",
     "Settings",
     "Exit",
@@ -47,6 +44,16 @@ MODULE_MAP = {
     "Organization": organization.run_org_intel,
     "Website": domain.run_domain_intel,
     "Social Profile": username.run_username_intel,
+}
+
+# Modules to run automatically depending on detected primary type
+AUTO_MODULES = {
+    "Email Address": ["Email Address", "Domain", "Organization", "Social Profile"],
+    "Domain": ["Domain", "IP Address", "Organization"],
+    "IP Address": ["IP Address", "Domain"],
+    "Phone Number": ["Phone Number"],
+    "Organization": ["Organization", "Domain", "Email Address"],
+    "Social Profile": ["Social Profile", "Domain", "Email Address"],
 }
 
 
@@ -279,30 +286,80 @@ class DarkTraceXApp(App):
                 return
             asyncio.create_task(self.start_investigation(self.selected_module, target))
 
+        def _determine_primary_module(self, target: str) -> str:
+            """Detect the primary module for a given target string."""
+            t = target.strip()
+            if valid_email(t):
+                return "Email Address"
+            if valid_phone(t):
+                return "Phone Number"
+            try:
+                _ = ipaddress.ip_address(t)
+                return "IP Address"
+            except Exception:
+                pass
+            # domain-like
+            if "." in t and len(t) > 3:
+                return "Domain"
+            # heuristics: organization (contains space and letters)
+            if " " in t and len(t.split()) <= 4:
+                return "Organization"
+            # fallback to username/profile
+            return "Social Profile"
+
+        async def _run_auto_modules(self, target: str) -> ModuleResult:
+            """Run a set of modules automatically based on detected target type and aggregate results."""
+            primary = self._determine_primary_module(target)
+            modules = AUTO_MODULES.get(primary, [primary])
+            aggregated = ModuleResult()
+            for mod_name in modules:
+                handler = MODULE_MAP.get(mod_name)
+                if handler is None:
+                    continue
+                try:
+                    res = await asyncio.to_thread(handler, target)
+                except Exception:
+                    continue
+                # ingest for correlation as well
+                self.correlation_engine.add_module_result(mod_name, target, res)
+                # aggregate findings and timeline
+                aggregated.findings.extend(res.findings)
+                aggregated.timeline.extend(res.timeline)
+            return aggregated
+
     async def start_investigation(self, module_name: str, target: str) -> None:
         self.active_investigations += 1
         self.update_status()
         self.status.update_status(f"Running {module_name} investigation for {target}...")
         self.output.clear()
 
-        handler = MODULE_MAP.get(module_name)
-        if handler is None:
-            self.status.update_status(f"The module '{module_name}' is currently unavailable.")
-            self.active_investigations -= 1
-            self.update_status()
-            return
-
         investigation_start = datetime.now()
         try:
             self.correlation_engine.reset()
-            results = await asyncio.to_thread(handler, target)
-            context = self.investigation_engine.create(module_name, target)
+            # Auto-run orchestration when user chooses New Investigation
+            if module_name == "New Investigation":
+                results = await self._run_auto_modules(target)
+                primary = self._determine_primary_module(target)
+                context = self.investigation_engine.create(primary, target)
+            else:
+                handler = MODULE_MAP.get(module_name)
+                if handler is None:
+                    self.status.update_status(f"The module '{module_name}' is currently unavailable.")
+                    self.active_investigations -= 1
+                    self.update_status()
+                    return
+                results = await asyncio.to_thread(handler, target)
+                context = self.investigation_engine.create(module_name, target)
+
             for finding in results.findings:
                 self.investigation_engine.add_finding(context, finding)
             for event in results.timeline:
                 self.investigation_engine.add_event(context, event)
             self.investigation_engine.record(context)
-            self.correlation_engine.add_module_result(module_name, target, results)
+
+            # If not already added to the correlation engine by auto-run, add single module result
+            if module_name != "New Investigation":
+                self.correlation_engine.add_module_result(module_name, target, results)
 
             context.metadata["correlation_summary"] = self.correlation_engine.get_correlation_summary()
             context.metadata["case_risk"] = self.correlation_engine.get_case_risk()
